@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang='en'>
+  <head>
+    <meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    
+    <title>Query Builder Demo</title>
+
+    <script src='https://cdn.jsdelivr.net/npm/@graphcms/zoid@9.0.64-alpha.1/lib/zoid.min.js'></script>
+    <script src='https://cdn.jsdelivr.net/npm/@graphcms/uix-sdk@0.1.2/dist/gcuix.umd.production.min.js'></script>    
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder/dist/js/query-builder.standalone.min.js'></script>
+    <script type="text/javascript" src="./data.js"></script>
+
+
+    <link rel='stylesheet' type='text/css' href='https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder/dist/css/query-builder.default.min.css' />    
+    <link rel='stylesheet' type='text/css' href='./index.css' />        
+    <link rel='stylesheet' type='text/css' href='https://fonts.googleapis.com/css?family=Inter:300' />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
+
+    <script>
+      ((props) => {
+
+        const declaration = {
+          extensionType: 'field',
+          fieldType: 'STRING',
+          name: 'Query Builder',
+          description: 'Build a query with the Query Builder UI',
+          features: ['FieldRenderer', 'TableRenderer',],
+        };
+
+        async function init() {
+          try {
+            window.GCUIX.init({
+              declaration,
+              onProps: function(newProps) {
+                props = newProps;
+
+                //If the field value was cleared with the "clear" button, reset the query builder
+                console.log('init');
+                //if (!props.value) $('#builder-basic').queryBuilder('reset');           
+              }
+            }).then((initialState) => {
+              props = initialState.props;              
+              if (initialState.status === 'ok') {
+
+                if (props.isTableCell) {
+                  return;
+                }
+
+                renderBuilder();
+                initResultsButton();
+                
+              }
+            });
+          } catch(error) {
+            console.error('Failed to init extension:', error.message);
+            console.error('- error code:', error.code);
+          }
+        }
+
+        function initResultsButton () {
+          const button = document.getElementById('get-results-button');
+          button.addEventListener('click', () => updateResults());
+        }
+
+        function renderBuilder () {
+          console.log('renderbuilder');
+
+          //In this example I am pulling the input for the filters from a file but this could just as well come from a set of enums in a GraphCMS project
+          const myfilters = [
+            {
+              id: 'topic',
+              label: 'Topic',
+              input: 'select',
+              operators: ['equal', 'not_equal'],
+              values: data.topic,
+            },            
+            {
+              id: 'state',
+              label: 'State',
+              input: 'select',
+              operators: ['equal', 'not_equal'],
+              values: data.state,
+            },
+            {
+              id: 'language',
+              label: 'Language',
+              input: 'select',
+              operators: ['equal', 'not_equal'],
+              values: data.language,
+            }
+          ];
+
+          //Prep stored value
+          const rules_start = (props.value) ? JSON.parse(props.value) : null;
+
+          //Start the query builder
+          $('#builder-basic').queryBuilder({
+            filters: myfilters,
+            lang_code: 'en',
+            icons: {
+              add_group: 'fas fa-plus-square',
+              add_rule: 'fas fa-plus-circle',
+              remove_group: 'fas fa-minus-square',
+              remove_rule: 'fas fa-minus-circle',
+              error: 'fas fa-exclamation-triangle'
+            },
+            rules: rules_start,
+          });
+
+          //Subscribe to changes
+          $('#builder-basic').on('rulesChanged.queryBuilder', onChange);
+
+          console.log('renderbuilder done');
+        }
+
+        async function onChange() {
+          var rules = $('#builder-basic').queryBuilder('getRules');
+            
+            if (!$.isEmptyObject(rules)) {
+              props.onChange(JSON.stringify(rules));
+            }
+
+        }
+
+        async function getQueries () {
+          let queries = await props.form.getFieldState('modelsInCollection');
+          return queries.value;
+        }
+
+        function getFilters (group) {
+          try { 
+            if (!group.rules) return [];
+            let filters = {};
+            let filterobject = [];
+            for (let index = 0; index < group.rules.length; index++) {
+              //check if we have a nested group
+              if (group.rules[index].rules) {
+                let recursive_filters = getFilters(group.rules[index]);
+                if (recursive_filters && Object.keys(recursive_filters).length) {
+                  filterobject.push(recursive_filters);
+                }
+              } else {
+                let filter = {};
+                if (group.rules[index].operator === "equal") {
+                  filter[group.rules[index].id] = group.rules[index].value;
+                  filterobject.push(filter);
+                } else if (group.rules[index].operator === "not_equal") {
+                  filter[group.rules[index].id + "_not"] = group.rules[index].value;
+                  filterobject.push(filter);
+                };
+              }
+            }
+            if (filterobject.length) {
+              if (group.condition === "AND") filters["AND"] = filterobject;
+              else if (group.condition === "OR") filters["OR"] = filterobject;
+            }
+            return filters;
+          } catch (e) {
+            console.log("Error parsing query");
+            console.error(e);
+          }
+        }
+
+        async function getResponses (queries, filters) {
+          if (!queries.length) return [];
+          try {          
+            let responses = [];            
+            for (let index = 0; index < queries.length; index++) {
+              const query = `query { 
+                ${queries[index]} (where: ${JSON.stringify(filters).replaceAll('"', '')})  {
+                  id
+                  title
+                }
+              }`;
+              console.log(query);
+
+              const response = await fetch(props.context.environment.endpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  query: query,
+                }),
+              });   
+              const parsed = await response.json();
+              responses.push(parsed);
+            }
+
+            return responses;
+          } catch {
+            console.log("Error running queries");
+            console.error(e);
+            return [];
+          }
+        }  
+        
+        async function updateResults () {
+          console.log('update results')
+          const rules = (props.value) ? JSON.parse(props.value) : null;
+          if (!rules) return;
+
+          //reset results div
+          const results = document.getElementById('results');
+          results.innerHTML = '';
+
+          //Get queries and filters and execute
+          const queries = await getQueries();
+          const filters = getFilters(rules);
+          let responses = await getResponses(queries, filters);
+          if (!responses.length) return;
+
+          //Update results
+          const title = document.createElement('h4');
+          title.innerHTML = 'Results:';
+          results.appendChild(title);
+          const ul = document.createElement('ul');
+          results.appendChild(ul);
+          for (i = 0; i < responses.length; i++) {
+            const li = document.createElement('li');
+            ul.appendChild(li);
+            const item = Object.keys(responses[i].data)[0];
+            li.innerHTML = item + ":";
+            if (responses[i].data[item].length) {
+              const nestedul = document.createElement('ul');
+              li.appendChild(nestedul);
+              for (j = 0; j < responses[i].data[item].length; j++) {
+                const nestedli = document.createElement('li');
+                nestedul.appendChild(nestedli);
+                nestedli.innerHTML = responses[i].data[item][j].title
+              }
+            }
+          }
+
+        }        
+
+        document.addEventListener('DOMContentLoaded', init);
+        
+      })();
+      
+    </script>
+  </head>
+  <body>
+    <div id="builder-basic" class="query-builder form-inline"></div>
+    <button id="get-results-button">Check results</button>
+    <div id="results"></div>
+    <div id="bumper"></div>
+  </body>
+</html>
