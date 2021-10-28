@@ -37,8 +37,10 @@
                 props = newProps;
 
                 //If the field value was cleared with the "clear" button, reset the query builder
-                console.log('init');
-                //if (!props.value) $('#builder-basic').queryBuilder('reset');           
+                if (!props.value) {
+                  $('#builder-basic').queryBuilder('reset');
+                  clearResults();
+                } 
               }
             }).then((initialState) => {
               props = initialState.props;              
@@ -65,7 +67,6 @@
         }
 
         function renderBuilder () {
-          console.log('renderbuilder');
 
           //In this example I am pulling the input for the filters from a file but this could just as well come from a set of enums in a GraphCMS project
           const myfilters = [
@@ -111,8 +112,6 @@
 
           //Subscribe to changes
           $('#builder-basic').on('rulesChanged.queryBuilder', onChange);
-
-          console.log('renderbuilder done');
         }
 
         async function onChange() {
@@ -120,6 +119,7 @@
             
             if (!$.isEmptyObject(rules)) {
               props.onChange(JSON.stringify(rules));
+              clearResults();
             }
 
         }
@@ -196,15 +196,19 @@
             return [];
           }
         }  
-        
+
+        function clearResults () {
+          const results = document.getElementById('results');
+          results.innerHTML = '';
+          return results;
+        }
+
         async function updateResults () {
-          console.log('update results')
           const rules = (props.value) ? JSON.parse(props.value) : null;
           if (!rules) return;
 
           //reset results div
-          const results = document.getElementById('results');
-          results.innerHTML = '';
+          const results = clearResults();
 
           //Get queries and filters and execute
           const queries = await getQueries();
