@@ -19,7 +19,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" />
 
     <script>
-      ((props) => {
+      ((props, initialized = false) => {
 
         const declaration = {
           extensionType: 'field',
@@ -36,8 +36,8 @@
               onProps: function(newProps) {
                 props = newProps;
 
-                //If the field value was cleared with the "clear" button, reset the query builder
-                if (!props.value) {
+                //If the field value was cleared with the "clear" button (and the builder is properly initialized), reset the query builder
+                if (!props.value && initialized) {
                   $('#builder-basic').queryBuilder('reset');
                   clearResults();
                 } 
@@ -112,6 +112,9 @@
 
           //Subscribe to changes
           $('#builder-basic').on('rulesChanged.queryBuilder', onChange);
+
+          //Set initialized property in props
+          initialized = true;
         }
 
         async function onChange() {
